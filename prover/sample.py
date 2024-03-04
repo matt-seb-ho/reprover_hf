@@ -1,6 +1,6 @@
-"""Script for evaluating the prover on theorems extracted by LeanDojo.
 """
-
+Sampling proof search trees to collect negative data
+"""
 import os
 import uuid
 import json
@@ -13,82 +13,11 @@ from typing import List, Tuple, Optional
 from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
 
 from common import set_logger
-from prover.proof_search import Status, DistributedProver
+from prover.proof_search import Status, DistributedProver, SearchResult
+from prover.evaluate import _get_theorems
+from prover.search_tree import Edge, InternalNode
 
-
-def _get_theorems(
-    data_path: str,
-    split: str,
-    file_path: str,
-    full_name: str,
-    name_filter: str,
-    num_theorems: int,
-) -> Tuple[LeanGitRepo, List[Theorem], List[Pos]]:
-    repo, theorems, positions = _get_theorems_from_files(
-        data_path,
-        split,
-        file_path,
-        full_name,
-        name_filter,
-        num_theorems,
-    )
-
-    all_repos = {thm.repo for thm in theorems}
-    for r in all_repos:
-        assert is_available_in_cache(
-            r
-        ), f"{r} has not been traced yet. Please use LeanDojo to trace it so that it's available in the cache."
-
-    return repo, theorems, positions
-
-
-def _get_theorems_from_files(
-    data_path: str,
-    split: str,
-    file_path: Optional[str],
-    full_name: Optional[str],
-    name_filter: Optional[str],
-    num_theorems: Optional[int],
-) -> Tuple[LeanGitRepo, List[Theorem], List[Pos]]:
-    data = json.load(open(os.path.join(data_path, f"{split}.json")))
-    theorems = []
-    positions = []
-
-    for t in data:
-        if file_path is not None and t["file_path"] != file_path:
-            continue
-        if full_name is not None and t["full_name"] != full_name:
-            continue
-        if name_filter is not None and not hashlib.md5(
-            t["full_name"].encode()
-        ).hexdigest().startswith(name_filter):
-            continue
-        repo = LeanGitRepo(t["url"], t["commit"])
-        theorems.append(Theorem(repo, t["file_path"], t["full_name"]))
-        positions.append(Pos(*t["start"]))
-
-    # Jointly sort theorems and positions
-    theorems_and_positions = list(zip(theorems, positions))
-    theorems_and_positions.sort(
-        key=lambda x: hashlib.md5(
-            f"{x[0].file_path}:{x[0].full_name}".encode()
-        ).hexdigest()
-    )
-    theorems, positions = zip(*theorems_and_positions)
-    theorems, positions = list(theorems), list(positions)
-
-    if num_theorems is not None:
-        theorems = theorems[:num_theorems]
-        positions = positions[:num_theorems]
-    logger.info(f"{len(theorems)} theorems loaded from {data_path}")
-
-    metadata = json.load(open(os.path.join(data_path, "../metadata.json")))
-    repo = LeanGitRepo(metadata["from_repo"]["url"], metadata["from_repo"]["commit"])
-
-    return repo, theorems, positions
-
-
-def evaluate(
+def sample_trees(
     data_path: str,
     exp_id: Optional[str] = None,
     split: str = "val",
@@ -102,11 +31,12 @@ def evaluate(
     module: Optional[str] = None,
     num_sampled_tactics: int = 64,
     timeout: int = 600,
-    num_workers: int = 1,
-    num_gpus: int = 0,
+    num_cpus: int = 1,
+    with_gpus: bool = False,
     verbose: bool = False,
     hf_generator_id: Optional[str] = None,
     hf_retrieval_id: Optional[str] = None,
+    output_tree_files: Optional[str] = None,
 ) -> float:
     set_logger(verbose)
 
@@ -120,15 +50,22 @@ def evaluate(
         indexed_corpus_path,
         tactic,
         module,
-        num_workers,
-        num_gpus=num_gpus,
+        num_cpus,
+        with_gpus=with_gpus,
         timeout=timeout,
         num_sampled_tactics=num_sampled_tactics,
         debug=verbose,
         hf_generator_id=hf_generator_id,
         hf_retriever_id=hf_retrieval_id,
     )
-    results = prover.search_unordered(repo, theorems, positions)
+    results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
+
+    if output_tree_files:
+        tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees)}
+        with open(output_tree_files, 'w') as f:
+            json.dump(tree_data, f)
+            logger.info(f"Sampled trees written out to: {output_tree_files}")
+
 
     # Calculate the result statistics.
     num_proved = num_failed = num_discarded = 0
@@ -156,7 +93,7 @@ def evaluate(
     pickle.dump(results, open(pickle_path, "wb"))
     logger.info(f"Results saved to {pickle_path}")
 
-    return pass_1
+    return pass_1, trees
 
 
 def main() -> None:
@@ -216,23 +153,27 @@ def main() -> None:
         help="Maximum number of seconds the proof search can take.",
     )
     parser.add_argument(
-        "--num-workers", type=int, default=1, help="The number of concurrent provers."
+        "--num-cpus", type=int, default=1, help="The number of concurrent provers."
     )
     parser.add_argument(
-        "--num-gpus", type=int, default=0, help="The number of GPUs for proof search."
+        "--with-gpus", action="store_true", help="Use GPUs for proof search."
     )
     parser.add_argument(
         "--verbose", action="store_true", help="Set the logging level to DEBUG."
     )
+    parser.add_argument(
+        "--output_tree_file",
+        type=str,
+        help="json file to write sampled trees out to",
+    )
     args = parser.parse_args()
 
     assert args.ckpt_path or args.tactic or args.hf_gen_id
-    assert args.num_gpus <= args.num_workers
 
     logger.info(f"PID: {os.getpid()}")
     logger.info(args)
 
-    pass_1 = evaluate(
+    pass_1 = sample_trees(
         args.data_path,
         args.exp_id,
         args.split,
@@ -246,11 +187,12 @@ def main() -> None:
         args.module,
         args.num_sampled_tactics,
         args.timeout,
-        args.num_workers,
-        args.num_gpus,
+        args.num_cpus,
+        args.with_gpus,
         args.verbose,
-        args.hf_gen_id,
-        args.hf_ret_id,
+        hf_generator_id=args.hf_gen_id,
+        hf_retrieval_id=args.hf_ret_id,
+        output_tree_file=args.output_tree_file
     )
 
     logger.info(f"Pass@1: {pass_1}")
