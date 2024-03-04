@@ -35,6 +35,7 @@ class PremiseRetriever(pl.LightningModule):
         warmup_steps: int,
         max_seq_len: int,
         num_retrieved: int = 100,
+        use_device_map_auto: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -43,12 +44,43 @@ class PremiseRetriever(pl.LightningModule):
         self.num_retrieved = num_retrieved
         self.max_seq_len = max_seq_len
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.encoder = T5EncoderModel.from_pretrained(model_name)
+        if use_device_map_auto:
+            print("Using device map auto...")
+            self.encoder = T5EncoderModel.from_pretrained(model_name, device_map="auto")
+        else:
+            self.encoder = T5EncoderModel.from_pretrained(model_name)
         self.embeddings_staled = True
 
     @classmethod
     def load(cls, ckpt_path: str, device, freeze: bool) -> "PremiseRetriever":
         return load_checkpoint(cls, ckpt_path, device, freeze)
+
+    @classmethod
+    def load_from_hf(
+        cls, 
+        hf_model_id: str, 
+        device=None, 
+        freeze: bool = True
+    ) -> "PremiseRetriever":
+        """
+        We aren't actually going to use the training args (we really just want to run inference)
+        so it doesn't matter what we put, so we can just use the hyperparameters they use for their lean4 runs.
+        These are from `retrieval/confs/cli_lean4_random.yaml`
+
+        TODO: change if we end up tuning this model
+        """
+        model = cls(
+            hf_model_id,
+            lr=1e-4,
+            warmup_steps=2000,
+            max_seq_len=1024,
+            use_device_map_auto=(device is None)
+        )
+        if device:
+            model.to(device)
+        if freeze:
+            model.freeze()
+        return model
 
     def load_corpus(self, path_or_corpus: Union[str, Corpus]) -> None:
         """Associate the retriever with a corpus."""
