@@ -92,6 +92,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         max_oup_seq_len: int,
         length_penalty: float = 0.0,
         ret_ckpt_path: Optional[str] = None,
+        use_device_map_auto: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -116,7 +117,11 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             )
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.generator = T5ForConditionalGeneration.from_pretrained(model_name)
+        if use_device_map_auto:
+            self.generator = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto")
+            logger.info("Using device_map='auto' for the generator")
+        else:
+            self.generator = T5ForConditionalGeneration.from_pretrained(model_name)
 
         self.topk_accuracies = dict()
         for k in range(1, num_beams + 1):
@@ -129,6 +134,47 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         cls, ckpt_path: str, device, freeze: bool
     ) -> "RetrievalAugmentedGenerator":
         return load_checkpoint(cls, ckpt_path, device, freeze)
+
+    @classmethod
+    def load_from_hf(
+        cls, hf_generator_id: str, hf_retriever_id: Optional[str] = None,
+    ) -> "RetrievalAugmentedGenerator":
+        """
+        We aren't actually going to use the training args (we really just want to run inference)
+        so it doesn't matter what we put, so we can just use the hyperparameters they use for their lean4 runs.
+        These are from `generator/confs/cli_lean4_random.yaml`
+
+        lr: float = 5e-4,
+        warmup_steps: int = 2000,
+        num_beams: int = 1,
+        eval_num_retrieved: int = 100,
+        eval_num_cpus: int = 12,
+        eval_num_theorems: int = 0,
+        max_inp_seq_len: int = 2300,
+        max_oup_seq_len: int = 512,
+        length_penalty: float = 0.0,
+        ret_ckpt_path: Optional[str] = None,
+
+        TODO: change if we end up tuning this model
+        """
+        logger.info(f"Loading RetrievalAugmentedGenerator from HF model_id: {hf_generator_id}")
+        model = cls(
+            hf_generator_id,
+            5e-4,
+            2000,
+            1
+            100,
+            12
+            0
+            2300,
+            512,
+            use_device_map_auto=True,
+        )
+        if hf_retriever_id is not None:
+            # need to add the retriever
+            # - device=None to use device_map="auto" there too
+            model.retriever = PremiseRetriever.load_from_hf(hf_retriever_id, device=None)
+        return model
 
     def forward(
         self,

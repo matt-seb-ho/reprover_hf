@@ -381,22 +381,32 @@ class DistributedProver:
         num_gpus: int,
         timeout: int,
         num_sampled_tactics: int,
+        hf_generator_id: Optional[str],
+        hf_retriever_id: Optional[str],
         debug: Optional[bool] = False,
     ) -> None:
         if ckpt_path is None:
             assert tactic and not indexed_corpus_path
-        else:
+        elif hf_generator_id is None:
             assert not tactic and not module
         self.distributed = num_workers > 1
 
         if not self.distributed:
-            if ckpt_path is None:
+            if ckpt_path is None and hf_generator_id is None:
                 tac_gen = FixedTacticGenerator(tactic, module)
             else:
-                device = torch.device("cuda") if num_gpus > 0 else torch.device("cpu")
-                tac_gen = RetrievalAugmentedGenerator.load(
-                    ckpt_path, device=device, freeze=True
-                )
+                if ckpt_path:
+                    device = torch.device("cuda") if num_gpus > 0 else torch.device("cpu")
+                    tac_gen = RetrievalAugmentedGenerator.load(
+                        ckpt_path, device=device, freeze=True
+                    )
+                else:
+                    assert hf_generator_id is not None, "Need the tactic generator model through pl or hf checkpoint"
+                    tac_gen = RetrievalAugmentedGenerator.load_from_hf(
+                        hf_generator_id, 
+                        hf_retriever_id=hf_retriever_id
+                        # TODO implement the device and freeze parts
+                    )
                 if tac_gen.retriever is not None:
                     assert indexed_corpus_path is not None
                     tac_gen.retriever.load_corpus(indexed_corpus_path)

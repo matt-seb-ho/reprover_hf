@@ -45,7 +45,7 @@ class PremiseRetriever(pl.LightningModule):
         self.max_seq_len = max_seq_len
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if use_device_map_auto:
-            print("Using device map auto...")
+            logger.info("Using device map auto...")
             self.encoder = T5EncoderModel.from_pretrained(model_name, device_map="auto")
         else:
             self.encoder = T5EncoderModel.from_pretrained(model_name)
@@ -69,6 +69,7 @@ class PremiseRetriever(pl.LightningModule):
 
         TODO: change if we end up tuning this model
         """
+        logger.info(f"Loading PremiseRetriever from HF model id: {hf_model_id}")
         model = cls(
             hf_model_id,
             lr=1e-4,
