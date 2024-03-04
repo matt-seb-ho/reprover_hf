@@ -67,8 +67,12 @@ class BestFirstSearchProver:
         self.total_time = None
 
     def search(
-        self, repo: LeanGitRepo, thm: Theorem, pos: Pos
-    ) -> Optional[SearchResult]:
+        self, 
+        repo: LeanGitRepo, 
+        thm: Theorem, 
+        pos: Pos, 
+        return_tree: bool = False,
+    ) -> Tuple[Optional[SearchResult], Optional[dict]]:
         logger.info(f"Proving {thm}")
 
         self.repo = repo
@@ -119,11 +123,12 @@ class BestFirstSearchProver:
                 num_searched_nodes=self.num_expansions,
             )
             logger.info(result)
-            return result
+            _tree = self.root.extract_tree_to_dict() if return_tree else None
+            return result, _tree
 
         except DojoInitError as ex:
             logger.warning(ex)
-            return None
+            return None, None
 
     def _best_first_search(self) -> None:
         time_start = time.monotonic()
@@ -376,9 +381,9 @@ class DistributedProver:
         with_gpus: bool,
         timeout: int,
         num_sampled_tactics: int,
-        hf_generator_id: Optional[str],
-        hf_retriever_id: Optional[str],
         debug: Optional[bool] = False,
+        hf_generator_id: Optional[str] = None,
+        hf_retriever_id: Optional[str] = None,
     ) -> None:
         if ckpt_path is None:
             assert tactic and not indexed_corpus_path
@@ -448,14 +453,14 @@ class DistributedProver:
         """Parallel proof search for `theorems`. The order of the results is not guaranteed to match the order of the input."""
         if not self.distributed:
             return [
-                self.prover.search(repo, thm, pos)
+                self.prover.search(repo, thm, pos)[0]
                 for thm, pos in zip_strict(theorems, positions)
             ]
 
         try:
             results = list(
                 self.prover_pool.map_unordered(
-                    lambda p, x: p.search.remote(repo, x[0], x[1]),
+                    lambda p, x: p.search.remote(repo, x[0], x[1])[0],
                     zip_strict(theorems, positions),
                 )
             )
@@ -464,3 +469,35 @@ class DistributedProver:
             sys.exit(1)
 
         return results
+
+    def search_unordered_and_return_trees(
+        self, repo: LeanGitRepo, theorems: List[Theorem], positions: List[Pos]
+    ) -> List[SearchResult], List[dict]:
+        """Parallel proof search for `theorems`. The order of the results is not guaranteed to match the order of the input."""
+        if not self.distributed:
+            results = []
+            trees = []
+            for thm, pos in zip_strict(theorems, positions):
+                res, tree = self.prover.search(repo, thm, pos)
+                results.append(res)
+                trees.append(tree)
+            return results, trees
+
+        try:
+            results_and_trees = list(
+                self.prover_pool.map_unordered(
+                    lambda p, x: p.search.remote(repo, x[0], x[1]),
+                    zip_strict(theorems, positions),
+                )
+            )
+            results = []
+            trees = []
+            for r, t in results_and_trees:
+                results.append(r)
+                trees.append(r)
+
+        except ray.exceptions.RayActorError as ex:
+            logger.error(ex)
+            sys.exit(1)
+
+        return results, trees

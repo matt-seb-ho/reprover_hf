@@ -202,6 +202,43 @@ class InternalNode(Node):
             child_proof = proving_edge.dst.extract_proof()
             assert child_proof
             return [proving_edge, *child_proof]
+    
+    
+    def extract_tree_to_dict(self) -> dict:
+        correct = (self.status == Status.PROVED)
+        optimal = correct
+        return self._extract_tree_to_dict(correct, optimal)
+
+    def _extract_tree_to_dict(self, correct=False, optimal=False) -> dict:
+        node_dict = {
+            "message": self.state.message,
+            "state": self.state.pp,
+            "correct": correct,
+            "optimal": optimal,
+            "children": {}
+        }
+        min_dist = min([e.distance_to_proof() for e in self.out_edges])
+        for edge in self.out_edges:
+            if edge.dst.is_terminal:
+                assert isinstance(edge.dst, ProofFinishedNode)
+                child = {
+                    "message": None,
+                    "state": None,
+                    "on_path": True,
+                    "correct": True,
+                    "optimal": optimal,
+                    "children": None,
+                }
+            else:
+                assert isinstance(edge.dst, InternalNode)
+                dist = edge.distance_to_proof()
+                child = edge.dst._extract_tree_to_dict(
+                    correct=(dist != math.inf),
+                    optimal=(dist == min_dist),
+                )
+            node_dict["children"][edge.tactic] = child
+        return node_dict
+        
 
     #########
     # Debug #
