@@ -503,11 +503,11 @@ class DistributedProver:
         self, repo: LeanGitRepo, theorems: List[Theorem], positions: List[Pos]
     ) -> Tuple[List[SearchResult], List[dict]]:
         """Parallel proof search for `theorems`. The order of the results is not guaranteed to match the order of the input."""
+        trees = []
         if not self.distributed:
             results = []
-            trees = []
             for thm, pos in zip_strict(theorems, positions):
-                res, tree = self.prover.search(repo, thm, pos)
+                res, tree = self.prover.search(repo, thm, pos, return_tree=True)
                 results.append(res)
                 trees.append(tree)
             return results, trees
@@ -515,15 +515,14 @@ class DistributedProver:
         try:
             results_and_trees = list(
                 self.prover_pool.map_unordered(
-                    lambda p, x: p.search.remote(repo, x[0], x[1]),
+                    lambda p, x: p.search.remote(repo, x[0], x[1], return_tree=True),
                     zip_strict(theorems, positions),
                 )
             )
             results = []
-            trees = []
             for r, t in results_and_trees:
                 results.append(r)
-                trees.append(r)
+                trees.append(t)
 
         except ray.exceptions.RayActorError as ex:
             logger.error(ex)
