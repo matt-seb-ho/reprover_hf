@@ -217,16 +217,17 @@ class InternalNode(Node):
             "optimal": optimal,
             "children": {}
         }
+        if self.out_edges is None:
+            return node_dict
         min_dist = min([e.distance_to_proof() for e in self.out_edges])
         for edge in self.out_edges:
             if edge.dst.is_terminal:
-                assert isinstance(edge.dst, ProofFinishedNode)
+                correct_leaf = isinstance(edge.dst, ProofFinishedNode)
                 child = {
                     "message": None,
                     "state": None,
-                    "on_path": True,
-                    "correct": True,
-                    "optimal": optimal,
+                    "correct": correct_leaf,
+                    "optimal": (correct_leaf and optimal),
                     "children": None,
                 }
             else:

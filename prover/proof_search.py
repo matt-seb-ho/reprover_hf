@@ -6,6 +6,7 @@ import ray
 import time
 import heapq
 import torch
+import gc
 from lean_dojo import (
     Pos,
     Dojo,
@@ -507,17 +508,33 @@ class DistributedProver:
                 trees.append(tree)
             return results, trees
 
+        def actor_pool_search(p, x):
+            try:
+                return p.search.remote(repo, x[0], x[1], return_tree=True)
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    thm_name = x[0].full_name
+                    logger.info(f"Caught a CUDA OOM while proving {thm_name}, continuing to next example")
+                    # Attempt to clear cache and recover here
+                    gc.collect()  # Python garbage collection
+                    torch.cuda.empty_cache()  # Clear PyTorch's CUDA cache
+                    return (None, None)
+                else:
+                    raise  # Re-raise the exception if it's not a CUDA OOM error
+            
         try:
             results_and_trees = list(
                 self.prover_pool.map_unordered(
-                    lambda p, x: p.search.remote(repo, x[0], x[1], return_tree=True),
+                    # lambda p, x: p.search.remote(repo, x[0], x[1], return_tree=True),
+                    actor_pool_search,
                     zip_strict(theorems, positions),
                 )
             )
             results = []
             for r, t in results_and_trees:
-                results.append(r)
-                trees.append(t)
+                if r is not None:
+                    results.append(r)
+                    trees.append(t)
 
         except ray.exceptions.RayActorError as ex:
             logger.error(ex)

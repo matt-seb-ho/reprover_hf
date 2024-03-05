@@ -103,7 +103,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         self.max_oup_seq_len = max_oup_seq_len
 
         if ret_ckpt_path is None:
-            logger.info("Without retrieval")
+            logger.info("Without pl checkpoint retriever")
             self.retriever = None
         else:
             logger.info(f"Loading the retriever from {ret_ckpt_path}")
