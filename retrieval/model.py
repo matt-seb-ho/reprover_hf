@@ -44,7 +44,7 @@ class PremiseRetriever(pl.LightningModule):
         self.max_seq_len = max_seq_len
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if use_device_map_auto:
-            logger.info("Using device map auto...")
+            logger.info("Using device map auto for retriever...")
             self.encoder = T5EncoderModel.from_pretrained(model_name, device_map="auto")
         else:
             self.encoder = T5EncoderModel.from_pretrained(model_name)

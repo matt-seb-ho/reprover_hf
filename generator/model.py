@@ -132,7 +132,10 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
 
     @classmethod
     def load_from_hf(
-        cls, hf_generator_id: str, hf_retriever_id: Optional[str] = None,
+        cls, 
+        hf_generator_id: str, 
+        hf_retriever_id: Optional[str] = None,
+        device=None,
     ) -> "RetrievalAugmentedGenerator":
         """
         We aren't actually going to use the training args (we really just want to run inference)
@@ -163,12 +166,14 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             0,
             2300,
             512,
-            use_device_map_auto=True,
+            use_device_map_auto=(device is None),
         )
+        if device:
+            model.to(device)
         if hf_retriever_id is not None:
             # need to add the retriever
             # - device=None to use device_map="auto" there too
-            model.retriever = PremiseRetriever.load_from_hf(hf_retriever_id, device=None)
+            model.retriever = PremiseRetriever.load_from_hf(hf_retriever_id, device=device)
         return model
 
     def forward(
