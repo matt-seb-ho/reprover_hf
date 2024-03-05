@@ -67,7 +67,7 @@ def sample_trees(
     results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
 
     if output_tree_file:
-        tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees)}
+        tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees) if res is not None}
         with open(output_tree_file, 'w') as f:
             json.dump(tree_data, f)
             logger.info(f"Sampled trees written out to: {output_tree_file}")

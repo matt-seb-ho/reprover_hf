@@ -124,6 +124,7 @@ class BestFirstSearchProver:
                 num_searched_nodes=self.num_expansions,
             )
             logger.info(result)
+            
             _tree = self.root.extract_tree_to_dict() if return_tree else None
             return result, _tree
 
@@ -350,17 +351,37 @@ class GpuProver(BestFirstSearchProver):
         timeout: int,
         num_sampled_tactics: int,
         debug: bool,
+        hf_generator_id: Optional[str] = None,
+        hf_retriever_id: Optional[str] = None,
     ) -> None:
-        if ckpt_path is None:
+        if ckpt_path is None and hf_generator_id is None:
             tac_gen = FixedTacticGenerator(tactic, module)
         else:
-            tac_gen = RetrievalAugmentedGenerator.load(
-                ckpt_path, device=torch.device("cuda"), freeze=True
-            )
+            if ckpt_path:
+                tac_gen = RetrievalAugmentedGenerator.load(
+                    ckpt_path, device=torch.device("cuda"), freeze=True
+                )
+            else:
+                assert hf_generator_id is not None, "Need the tactic generator model through pl or hf checkpoint"
+                tac_gen = RetrievalAugmentedGenerator.load_from_hf(
+                    hf_generator_id, 
+                    hf_retriever_id=hf_retriever_id,
+                    device=torch.device("cuda"),
+                    # TODO implement the device and freeze parts
+                )
             if tac_gen.retriever is not None:
-                if indexed_corpus_path is not None:
-                    tac_gen.retriever.load_corpus(indexed_corpus_path)
-                tac_gen.retriever.reindex_corpus(batch_size=32)
+                assert indexed_corpus_path is not None
+                tac_gen.retriever.load_corpus(indexed_corpus_path)
+                # only need to reindex if it's raw corpus sans embedding
+                # - the indexed corpus is a pickle file
+                if indexed_corpus_path.endswith(".jsonl"):
+                    tac_gen.retriever.reindex_corpus(batch_size=32)
+            
+            # original code
+            # if tac_gen.retriever is not None:
+            #     if indexed_corpus_path is not None:
+            #         tac_gen.retriever.load_corpus(indexed_corpus_path)
+            #     tac_gen.retriever.reindex_corpus(batch_size=32)
         super().__init__(
             tac_gen,
             timeout,
@@ -400,8 +421,8 @@ class DistributedProver:
             if ckpt_path is None and hf_generator_id is None:
                 tac_gen = FixedTacticGenerator(tactic, module)
             else:
+                device = torch.device("cuda") if num_gpus > 0 else torch.device("cpu")
                 if ckpt_path:
-                    device = torch.device("cuda") if num_gpus > 0 else torch.device("cpu")
                     tac_gen = RetrievalAugmentedGenerator.load(
                         ckpt_path, device=device, freeze=True
                     )
@@ -409,7 +430,8 @@ class DistributedProver:
                     assert hf_generator_id is not None, "Need the tactic generator model through pl or hf checkpoint"
                     tac_gen = RetrievalAugmentedGenerator.load_from_hf(
                         hf_generator_id, 
-                        hf_retriever_id=hf_retriever_id
+                        hf_retriever_id=hf_retriever_id,
+                        device=device,
                         # TODO implement the device and freeze parts
                     )
                 if tac_gen.retriever is not None:
@@ -432,6 +454,8 @@ class DistributedProver:
                     timeout=timeout,
                     num_sampled_tactics=num_sampled_tactics,
                     debug=debug,
+                    hf_generator_id=hf_generator_id,
+                    hf_retriever_id=hf_retriever_id,
                 )
                 for _ in range(num_workers)
             ]
