@@ -8,6 +8,12 @@ import pickle
 import hashlib
 import argparse
 from loguru import logger
+
+from dotenv import load_dotenv
+load_dotenv("/mnt/hdd/msho/gfn_ntp/src/.env")
+os.environ["CACHE_DIR"] = "/mnt/hdd/msho/gfn_ntp/.cache/lean_dojo"
+print("github access token passed in:", "GITHUB_ACCESS_TOKEN" in os.environ)
+
 from lean_dojo import Theorem
 from typing import List, Tuple, Optional
 from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
@@ -36,8 +42,8 @@ def sample_trees(
     verbose: bool = False,
     hf_generator_id: Optional[str] = None,
     hf_retrieval_id: Optional[str] = None,
-    output_tree_files: Optional[str] = None,
-) -> float:
+    output_tree_file: Optional[str] = None,
+) -> Tuple[float, list[dict]]:
     set_logger(verbose)
 
     repo, theorems, positions = _get_theorems(
@@ -60,11 +66,11 @@ def sample_trees(
     )
     results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
 
-    if output_tree_files:
+    if output_tree_file:
         tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees)}
-        with open(output_tree_files, 'w') as f:
+        with open(output_tree_file, 'w') as f:
             json.dump(tree_data, f)
-            logger.info(f"Sampled trees written out to: {output_tree_files}")
+            logger.info(f"Sampled trees written out to: {output_tree_file}")
 
 
     # Calculate the result statistics.
@@ -166,6 +172,11 @@ def main() -> None:
         type=str,
         help="json file to write sampled trees out to",
     )
+    parser.add_argument(
+        "--lean_dojo_cache_path",
+        type=str,
+        help="lean dojo downloads to a cache dir (defaults to Path.home())",
+    )
     args = parser.parse_args()
 
     assert args.ckpt_path or args.tactic or args.hf_gen_id
@@ -173,7 +184,12 @@ def main() -> None:
     logger.info(f"PID: {os.getpid()}")
     logger.info(args)
 
-    pass_1 = sample_trees(
+    # # supplying github token increases my rate limits
+    # if args.lean_dojo_cache_path:
+    #     os.environ["CACHE_DIR"] = args.lean_dojo_cache_path
+    #     # assert False
+
+    pass_1, trees = sample_trees(
         args.data_path,
         args.exp_id,
         args.split,
@@ -196,6 +212,7 @@ def main() -> None:
     )
 
     logger.info(f"Pass@1: {pass_1}")
+    logger.info(f"Num trees: {len(trees)}")
 
 
 if __name__ == "__main__":
