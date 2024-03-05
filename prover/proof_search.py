@@ -385,7 +385,7 @@ class DistributedProver:
         hf_generator_id: Optional[str] = None,
         hf_retriever_id: Optional[str] = None,
     ) -> None:
-        if ckpt_path is None:
+        if ckpt_path is None and hf_generator_id is None:
             assert tactic and not indexed_corpus_path
         elif hf_generator_id is None:
             assert not tactic and not module
@@ -472,7 +472,7 @@ class DistributedProver:
 
     def search_unordered_and_return_trees(
         self, repo: LeanGitRepo, theorems: List[Theorem], positions: List[Pos]
-    ) -> List[SearchResult], List[dict]:
+    ) -> Tuple[List[SearchResult], List[dict]]:
         """Parallel proof search for `theorems`. The order of the results is not guaranteed to match the order of the input."""
         if not self.distributed:
             results = []

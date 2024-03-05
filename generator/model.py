@@ -157,10 +157,10 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             hf_generator_id,
             5e-4,
             2000,
-            1
+            1,
             100,
-            12
-            0
+            12,
+            0,
             2300,
             512,
             use_device_map_auto=True,
