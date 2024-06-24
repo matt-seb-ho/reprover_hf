@@ -8,6 +8,7 @@ import time
 import heapq
 import torch
 import gc
+import pickle
 from lean_dojo import (
     Pos,
     Dojo,
@@ -21,6 +22,7 @@ from lean_dojo import (
     DojoInitError,
     DojoCrashError,
     DojoHardTimeoutError,
+    InitOptimizedDojo,
 )
 from loguru import logger
 from dataclasses import dataclass
@@ -73,8 +75,11 @@ class BestFirstSearchProver:
         repo: LeanGitRepo, 
         thm: Theorem, 
         pos: Pos, 
-        return_tree: bool = False,
-    ) -> Tuple[Optional[SearchResult], Optional[dict]]:
+        # return_tree: bool = False,
+        dojo_tmp_dir: str,
+        save_to_dir: Optional[str] = None,
+    ) -> Optional[SearchResult]:
+    # ) -> Tuple[Optional[SearchResult], Optional[dict]]:
         logger.info(f"Proving {thm}")
 
         self.repo = repo
@@ -90,10 +95,15 @@ class BestFirstSearchProver:
             imps = []
 
         try:
-            with Dojo(thm, hard_timeout=60 + self.timeout, additional_imports=imps) as (
-                dojo,
-                init_state,
-            ):
+            # with Dojo(thm, hard_timeout=60 + self.timeout, additional_imports=imps) as (
+            #     dojo,
+            #     init_state,
+            # ):
+            with InitOptimizedDojo(
+                thm, 
+                hard_timeout=60 + self.timeout,
+                tmp_dir=dojo_tmp_dir,
+            ) as (dojo, init_state):
                 self.dojo = dojo
                 self.root = InternalNode(
                     state=init_state,
@@ -126,12 +136,21 @@ class BestFirstSearchProver:
             )
             logger.info(result)
             
-            _tree = self.root.extract_tree_to_dict() if return_tree else None
-            return result, _tree
+            # _tree = self.root.extract_tree_to_dict() if return_tree else None
+            # this hit recursion depth limit
+            # we'll just let pickle handle the tree/graph traversal and start sampling now
+            if save_to_dir:
+                tree_file_path = os.path.join(save_to_dir, f"{thm.full_name}.pickle")
+                with open(tree_file_path, 'wb') as f:
+                    pickle.dump(self.root, f)
+                    logger.info(f"Serialized search tree (self.root) to {tree_file_path}")
+            
+            return result
 
         except DojoInitError as ex:
             logger.warning(ex)
-            return None, None
+            # return None, None
+            return None
 
     def _best_first_search(self) -> None:
         time_start = time.monotonic()
@@ -437,6 +456,7 @@ class DistributedProver:
                     )
                 if tac_gen.retriever is not None:
                     assert indexed_corpus_path is not None
+                    logger.info("Loading corpus...")
                     tac_gen.retriever.load_corpus(indexed_corpus_path)
             self.prover = BestFirstSearchProver(
                 tac_gen, timeout, num_sampled_tactics, debug
@@ -500,49 +520,76 @@ class DistributedProver:
 
         return results
 
-    def search_unordered_and_return_trees(
-        self, repo: LeanGitRepo, theorems: List[Theorem], positions: List[Pos]
-    ) -> Tuple[List[SearchResult], List[dict]]:
+    def search_unordered_and_save_trees(
+        self, 
+        repo: LeanGitRepo,
+        theorems: List[Theorem],
+        positions: List[Pos],
+        dojo_tmp_dir: str,
+        save_to_dir: str,
+    ) -> List[SearchResult]:
+    # ) -> Tuple[List[SearchResult], List[dict]]:
         """Parallel proof search for `theorems`. The order of the results is not guaranteed to match the order of the input."""
-        trees = []
+        # trees = []
         if not self.distributed:
+            logger.info("Running search_unordered_and_save_trees in non-distributed mode")
             results = []
             for thm, pos in zip_strict(theorems, positions):
-                res, tree = self.prover.search(repo, thm, pos, return_tree=True)
+                # res, tree = self.prover.search(repo, thm, pos, return_tree=True)
+                res = self.prover.search(
+                    repo, 
+                    thm, 
+                    pos, 
+                    dojo_tmp_dir=dojo_tmp_dir, 
+                    save_to_dir=save_to_dir
+                )
                 results.append(res)
-                trees.append(tree)
-            return results, trees
+                # trees.append(tree)
+            # return results, trees
+            return results
 
         def actor_pool_search(p, x):
             try:
-                return p.search.remote(repo, x[0], x[1], return_tree=True)
+                return p.search.remote(
+                    repo, 
+                    x[0], 
+                    x[1], 
+                    dojo_tmp_dir,
+                    save_to_dir=save_to_dir
+                )
             except RuntimeError as e:
-                if "CUDA out of memory" in str(e):
+                msg = str(e)
+                if "CUDA" in msg and "out of memory" in msg:
                     thm_name = x[0].full_name
                     logger.info(f"Caught a CUDA OOM while proving {thm_name}, continuing to next example")
                     # Attempt to clear cache and recover here
                     gc.collect()  # Python garbage collection
                     torch.cuda.empty_cache()  # Clear PyTorch's CUDA cache
-                    return (None, None)
+                    # return (None, None)
+                    return None
                 else:
-                    raise  # Re-raise the exception if it's not a CUDA OOM error
+                    logger.error(f"Encountered error: {msg}, returning None and continuing")
+                    return None
             
         try:
-            results_and_trees = list(
+            # results_and_trees = list(
+            results = list(
                 self.prover_pool.map_unordered(
                     # lambda p, x: p.search.remote(repo, x[0], x[1], return_tree=True),
                     actor_pool_search,
                     zip_strict(theorems, positions),
                 )
             )
-            results = []
-            for r, t in results_and_trees:
-                if r is not None:
-                    results.append(r)
-                    trees.append(t)
+            filtered_results = [res for res in results if res is not None]
+            # results = []
+            # for r, t in results_and_trees:
+            #     if r is not None:
+            #         results.append(r)
+            #         trees.append(t)
 
         except ray.exceptions.RayActorError as ex:
             logger.error(ex)
             sys.exit(1)
 
-        return results, trees
+        # return results, trees
+        return filtered_results

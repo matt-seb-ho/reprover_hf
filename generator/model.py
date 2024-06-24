@@ -121,7 +121,9 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             self.generator = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto")
             logger.info("Using device_map='auto' for the generator")
         else:
+            logger.info("now loading t5 generator")
             self.generator = T5ForConditionalGeneration.from_pretrained(model_name)
+            logger.info("loaded in t5 generator")
 
         self.topk_accuracies = dict()
         for k in range(1, num_beams + 1):
@@ -173,11 +175,15 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             512,
             use_device_map_auto=(device is None),
         )
+        logger.info("Initialized generator class")
         if device:
+            logger.info(f"Moving model to device {device}")
             model.to(device)
+            logger.info("Model moved!")
         if hf_retriever_id is not None:
             # need to add the retriever
             # - device=None to use device_map="auto" there too
+            logger.info("finished loading generator, now loading retriever")
             model.retriever = PremiseRetriever.load_from_hf(hf_retriever_id, device=device)
         return model
 

@@ -10,11 +10,10 @@ import argparse
 from loguru import logger
 
 from dotenv import load_dotenv
-load_dotenv("/mnt/hdd/msho/gfn_ntp/src/.env")
+load_dotenv("/mnt/hdd/msho/.env")
 os.environ["CACHE_DIR"] = "/mnt/hdd/msho/gfn_ntp/.cache/lean_dojo"
 print("github access token passed in:", "GITHUB_ACCESS_TOKEN" in os.environ)
 
-from lean_dojo import Theorem
 from typing import List, Tuple, Optional
 from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
 
@@ -23,14 +22,57 @@ from prover.proof_search import Status, DistributedProver, SearchResult
 from prover.evaluate import _get_theorems
 from prover.search_tree import Edge, InternalNode
 
+
+def handle_output_dir_path(path):
+    # Check if the path exists
+    if os.path.exists(path):
+        # If it exists, check if it is a directory
+        if os.path.isdir(path):
+            logger.info(f"Validated {path} as a directory.")
+        else:
+            # If it exists and is not a directory, raise an error
+            raise FileExistsError(f"The given output directory path {path} exists but is not a directory.")
+    else:
+        # If the path does not exist, create the directory
+        os.makedirs(path)
+        logger.info(f"Output directory {path} created.")
+
+
+def read_data_file(data_path: str) -> tuple[LeanGitRepo, list[Theorem], list[Pos]]:
+    # read file
+    with open(data_path) as f:
+        input_data = json.load(f)
+    
+    # handle list[thm_dict], dict[int, thm_dict] formats
+    if isinstance(input_data, list):
+        thm0 = input_data[0]
+        thm_iter = input_data
+    else:
+        assert isinstance(input_data, dict)
+        if "theorems" in input_data:
+            input_data = input_data["theorems"]
+        thm0 = next(iter(input_data.values()))
+        thm_iter = input_data.values()
+
+    # construct lean dojo objects
+    repo = LeanGitRepo(thm0["url"], thm0["commit"])
+    theorems = []
+    positions = []
+    for thm_info in thm_iter:
+        theorems.append(Theorem(repo, thm_info["file_path"], thm_info["full_name"]))
+        positions.append(Pos(*thm_info["start"]))
+
+    return repo, theorems, positions
+
+
 def sample_trees(
     data_path: str,
     exp_id: Optional[str] = None,
-    split: str = "val",
-    file_path: Optional[str] = None,
-    full_name: Optional[str] = None,
-    name_filter: Optional[str] = None,
-    num_theorems: Optional[int] = None,
+    # split: str = "val",
+    # file_path: Optional[str] = None,
+    # full_name: Optional[str] = None,
+    # name_filter: Optional[str] = None,
+    # num_theorems: Optional[int] = None,
     ckpt_path: Optional[str] = None,
     indexed_corpus_path: Optional[str] = None,
     tactic: Optional[str] = None,
@@ -43,13 +85,27 @@ def sample_trees(
     hf_generator_id: Optional[str] = None,
     hf_retrieval_id: Optional[str] = None,
     output_tree_file: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    dojo_tmp_dir: Optional[str] = "/mnt/hdd/msho/gfn_ntp/tmp",
+    testing: Optional[int] = None,
 ) -> Tuple[float, list[dict]]:
     set_logger(verbose)
 
-    repo, theorems, positions = _get_theorems(
-        data_path, split, file_path, full_name, name_filter, num_theorems
-    )
+    # create the output dir if it doesn't exist
+    if output_dir:
+        handle_output_dir_path(output_dir)
 
+    # original version
+    # repo, theorems, positions = _get_theorems(
+    #     data_path, split, file_path, full_name, name_filter, num_theorems
+    # )
+    # updated to read format from filtering
+    repo, theorems, positions = read_data_file(data_path)
+    if testing is not None:
+        theorems = theorems[:testing]
+        positions = positions[:testing]
+    logger.info("Finished reading in theorem data; constructing prover...")
+    
     # Search for proofs using multiple concurrent provers.
     prover = DistributedProver(
         ckpt_path,
@@ -64,13 +120,22 @@ def sample_trees(
         hf_generator_id=hf_generator_id,
         hf_retriever_id=hf_retrieval_id,
     )
-    results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
+    logger.info("Prover constructed; starting proof search...")
 
-    if output_tree_file:
-        tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees) if res is not None}
-        with open(output_tree_file, 'w') as f:
-            json.dump(tree_data, f)
-            logger.info(f"Sampled trees written out to: {output_tree_file}")
+    # results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
+    results = prover.search_unordered_and_save_trees(
+        repo,
+        theorems, 
+        positions,
+        dojo_tmp_dir,
+        output_dir,
+    )
+
+    # if output_tree_file:
+    #     tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees) if res is not None}
+    #     with open(output_tree_file, 'w') as f:
+    #         json.dump(tree_data, f)
+    #         logger.info(f"Sampled trees written out to: {output_tree_file}")
 
 
     # Calculate the result statistics.
@@ -99,7 +164,8 @@ def sample_trees(
     pickle.dump(results, open(pickle_path, "wb"))
     logger.info(f"Results saved to {pickle_path}")
 
-    return pass_1, trees
+    # return pass_1, trees
+    return pass_1
 
 
 def main() -> None:
@@ -173,9 +239,24 @@ def main() -> None:
         help="json file to write sampled trees out to",
     )
     parser.add_argument(
+        "--output_dir",
+        type=str,
+        help="path to directory where trees will be serialized to"
+    )
+    parser.add_argument(
         "--lean_dojo_cache_path",
         type=str,
         help="lean dojo downloads to a cache dir (defaults to Path.home())",
+    )
+    parser.add_argument(
+        "--dojo_tmp_dir",
+        default="/mnt/hdd/msho/gfn_ntp/tmp",
+        help="where to find target repo",
+    )
+    parser.add_argument(
+        "--testing",
+        type=int,
+        help="how many theorems to grab for testing purposes",
     )
     args = parser.parse_args()
 
@@ -189,14 +270,15 @@ def main() -> None:
     #     os.environ["CACHE_DIR"] = args.lean_dojo_cache_path
     #     # assert False
 
-    pass_1, trees = sample_trees(
+    # pass_1, trees = sample_trees(
+    pass_1 = sample_trees(
         args.data_path,
         args.exp_id,
-        args.split,
-        args.file_path,
-        args.full_name,
-        args.name_filter,
-        args.num_theorems,
+        # args.split,
+        # args.file_path,
+        # args.full_name,
+        # args.name_filter,
+        # args.num_theorems,
         args.ckpt_path,
         args.indexed_corpus_path,
         args.tactic,
@@ -208,11 +290,14 @@ def main() -> None:
         args.verbose,
         hf_generator_id=args.hf_gen_id,
         hf_retrieval_id=args.hf_ret_id,
-        output_tree_file=args.output_tree_file
+        output_tree_file=args.output_tree_file,
+        output_dir=args.output_dir,
+        dojo_tmp_dir=args.dojo_tmp_dir,
+        testing=args.testing,
     )
 
     logger.info(f"Pass@1: {pass_1}")
-    logger.info(f"Num trees: {len(trees)}")
+    # logger.info(f"Num trees: {len(trees)}")
 
 
 if __name__ == "__main__":
