@@ -18,6 +18,8 @@ from deepspeed.ops.adam import FusedAdam, DeepSpeedCPUAdam
 from typing import Optional, List, Dict, Any, Tuple, Generator
 from pytorch_lightning.strategies.deepspeed import DeepSpeedStrategy
 from jsonargparse import ActionConfigFile
+from dotenv import load_dotenv
+import yaml
 
 
 Example = Dict[str, Any]
@@ -537,3 +539,12 @@ def _link_config_arguments(config, src, dest):
     # set the value
     setattr(dest_parent, dest_parts[-1], src_value)
     return config
+
+
+def prepare_environment_for_lean_dojo(config_file_path):
+    with open(config_file_path) as f:
+        config = yaml.safe_load(f)
+    # github_auth_token
+    load_dotenv(config["github_access_token"])
+    # lean_dojo_cache_path
+    os.environ["CACHE_DIR"] = config["lean_dojo_cache_path"]

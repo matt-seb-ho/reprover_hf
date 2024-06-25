@@ -8,16 +8,13 @@ import pickle
 import hashlib
 import argparse
 from loguru import logger
-
-from dotenv import load_dotenv
-load_dotenv("/mnt/hdd/msho/.env")
-os.environ["CACHE_DIR"] = "/mnt/hdd/msho/gfn_ntp/.cache/lean_dojo"
-print("github access token passed in:", "GITHUB_ACCESS_TOKEN" in os.environ)
-
 from typing import List, Tuple, Optional
+
+from common import prepare_environment_for_lean_dojo, set_logger
+prepare_environment_for_lean_dojo()
+
 from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
 
-from common import set_logger
 from prover.proof_search import Status, DistributedProver, SearchResult
 from prover.evaluate import _get_theorems
 from prover.search_tree import Edge, InternalNode
@@ -120,6 +117,7 @@ def sample_trees(
         hf_generator_id=hf_generator_id,
         hf_retriever_id=hf_retrieval_id,
     )
+    
     logger.info("Prover constructed; starting proof search...")
 
     # results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
