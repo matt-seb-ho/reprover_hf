@@ -17,6 +17,7 @@ from transformers import get_cosine_schedule_with_warmup
 from deepspeed.ops.adam import FusedAdam, DeepSpeedCPUAdam
 from typing import Optional, List, Dict, Any, Tuple, Generator
 from pytorch_lightning.strategies.deepspeed import DeepSpeedStrategy
+from jsonargparse import ActionConfigFile
 
 
 Example = Dict[str, Any]
@@ -503,3 +504,36 @@ def cpu_checkpointing_enabled(pl_module) -> bool:
         )
     except RuntimeError:
         return False
+
+
+def load_model_from_name_and_config_file(model_name, config_file, link_arguments):
+    # set up parser
+    parser = pl.LightningArgumentParser()
+    parser.add_argument("--config", action=ActionConfigFile)
+
+    # parse args from file
+    config = parser.parse_args(["--config", config_file])
+    assert hasattr(config, "model")
+    config.model.model_name = model_name
+    for src, dest in link_arguments.items():
+        _link_config_arguments(config, src, dest)
+
+    # instantiate model class
+    return parser.instantiate_classes(config.model)['model']
+
+
+def _link_config_arguments(config, src, dest):
+    # get value to replace it with
+    src_value = config
+    for src_part in src.split("."):
+        src_value = getattr(src_value, src_part)
+
+    # get the parent of the src argument
+    dest_parent = config
+    dest_parts = dest.split(".")
+    for dest_part in dest_parts[:-1]:
+        dest_parent = getattr(dest_parent, dest_part)
+
+    # set the value
+    setattr(dest_parent, dest_parts[-1], src_value)
+    return config

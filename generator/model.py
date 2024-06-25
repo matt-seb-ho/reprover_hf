@@ -20,8 +20,10 @@ from common import (
     get_optimizers,
     load_checkpoint,
     format_augmented_state,
+    load_model_from_name_and_config_file,
 )
 from retrieval.model import PremiseRetriever
+from main import generator_link_arguments
 
 
 torch.set_float32_matmul_precision("medium")
@@ -92,7 +94,6 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         max_oup_seq_len: int,
         length_penalty: float = 0.0,
         ret_ckpt_path: Optional[str] = None,
-        use_device_map_auto: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -108,7 +109,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         self.max_oup_seq_len = max_oup_seq_len
 
         if ret_ckpt_path is None:
-            logger.info("Without pl checkpoint retriever")
+            logger.info("No pl checkpoint path provided for the retriever.")
             self.retriever = None
         else:
             logger.info(f"Loading the retriever from {ret_ckpt_path}")
@@ -117,13 +118,9 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             )
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if use_device_map_auto:
-            self.generator = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto")
-            logger.info("Using device_map='auto' for the generator")
-        else:
-            logger.info("now loading t5 generator")
-            self.generator = T5ForConditionalGeneration.from_pretrained(model_name)
-            logger.info("loaded in t5 generator")
+        self.generator = T5ForConditionalGeneration.from_pretrained(model_name)
+        # reprover (t5-small) doesn't require device_map
+        # self.generator = T5ForConditionalGeneration.from_pretrained(model_name, device_map="auto")
 
         self.topk_accuracies = dict()
         for k in range(1, num_beams + 1):
@@ -136,6 +133,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         cls, ckpt_path: str, device, freeze: bool
     ) -> "RetrievalAugmentedGenerator":
         return load_checkpoint(cls, ckpt_path, device, freeze)
+
 
     @classmethod
     def load_from_hf(
@@ -163,18 +161,13 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         TODO: change if we end up tuning this model
         """
         logger.info(f"Loading RetrievalAugmentedGenerator from HF model_id: {hf_generator_id}")
-        model = cls(
-            hf_generator_id,
-            5e-4,
-            2000,
-            1,
-            100,
-            12,
-            0,
-            2300,
-            512,
-            use_device_map_auto=(device is None),
+        # model = cls.get_model_from_config_file(hf_generator_id, "generator/confs/cli_lean4_random.yaml")
+        model = load_model_from_name_and_config_file(
+            hf_generator_id, 
+            "generator/confs/cli_lean4_random.yaml",
+            generator_link_arguments,
         )
+
         logger.info("Initialized generator class")
         if device:
             logger.info(f"Moving model to device {device}")

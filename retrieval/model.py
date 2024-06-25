@@ -21,7 +21,9 @@ from common import (
     load_checkpoint,
     zip_strict,
     cpu_checkpointing_enabled,
+    load_model_from_name_and_config_file,
 )
+from main import retriever_link_arguments
 
 
 torch.set_float32_matmul_precision("medium")
@@ -63,19 +65,17 @@ class PremiseRetriever(pl.LightningModule):
         freeze: bool = True
     ) -> "PremiseRetriever":
         """
+        initializing the model from 
         We aren't actually going to use the training args (we really just want to run inference)
         so it doesn't matter what we put, so we can just use the hyperparameters they use for their lean4 runs.
         These are from `retrieval/confs/cli_lean4_random.yaml`
 
-        TODO: change if we end up tuning this model
         """
         logger.info(f"Loading PremiseRetriever from HF model id: {hf_model_id}")
-        model = cls(
-            hf_model_id,
-            lr=1e-4,
-            warmup_steps=2000,
-            max_seq_len=1024,
-            use_device_map_auto=(device is None)
+        model = load_model_from_name_and_config_file(
+            hf_model_id, 
+            "retrieval/confs/cli_lean4_random.yaml",
+            retriever_link_arguments,
         )
         if device:
             model.to(device)
