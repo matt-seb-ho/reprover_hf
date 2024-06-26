@@ -1,0 +1,2 @@
+github_access_token: "/mnt/sshd/msho/.env"
+lean_dojo_cache_path: "/mnt/sshd/msho/gfn_ntp/.cache/lean_dojo"

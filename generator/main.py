@@ -6,17 +6,12 @@ from pytorch_lightning.cli import LightningCLI
 
 from generator.datamodule import GeneratorDataModule
 from generator.model import RetrievalAugmentedGenerator
-
-generator_link_arguments = {
-    "model.model_name": "data.model_name",
-    "data.max_inp_seq_len": "model.max_inp_seq_len",
-    "data.max_oup_seq_len": "model.max_oup_seq_len",
-}
+from common import CONFIG_LINK_ARGUMENTS
 
 
 class CLI(LightningCLI):
     def add_arguments_to_parser(self, parser) -> None:
-        for k, v in generator_link_arguments.items():
+        for k, v in CONFIG_LINK_ARGUMENTS["generator"].items():
             parser.link_arguments(k, v)
 
 

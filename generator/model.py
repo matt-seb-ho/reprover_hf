@@ -20,10 +20,10 @@ from common import (
     get_optimizers,
     load_checkpoint,
     format_augmented_state,
-    load_model_from_name_and_config_file,
+    instantiate_model_from_yaml_config,
+    CONFIG_LINK_ARGUMENTS,
 )
 from retrieval.model import PremiseRetriever
-from main import generator_link_arguments
 
 
 torch.set_float32_matmul_precision("medium")
@@ -161,11 +161,11 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         TODO: change if we end up tuning this model
         """
         logger.info(f"Loading RetrievalAugmentedGenerator from HF model_id: {hf_generator_id}")
-        # model = cls.get_model_from_config_file(hf_generator_id, "generator/confs/cli_lean4_random.yaml")
-        model = load_model_from_name_and_config_file(
-            hf_generator_id, 
-            "generator/confs/cli_lean4_random.yaml",
-            generator_link_arguments,
+        model = instantiate_model_from_yaml_config(
+            cls, 
+            "generator/confs/cli_lean4_random.yaml", 
+            CONFIG_LINK_ARGUMENTS["generator"],
+            model_name=hf_generator_id,
         )
 
         logger.info("Initialized generator class")

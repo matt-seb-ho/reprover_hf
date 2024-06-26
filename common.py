@@ -7,7 +7,6 @@ import torch
 import tempfile
 import networkx as nx
 from loguru import logger
-from lean_dojo import Pos
 import pytorch_lightning as pl
 from dataclasses import dataclass, field
 from pytorch_lightning.utilities.deepspeed import (
@@ -17,16 +16,41 @@ from transformers import get_cosine_schedule_with_warmup
 from deepspeed.ops.adam import FusedAdam, DeepSpeedCPUAdam
 from typing import Optional, List, Dict, Any, Tuple, Generator
 from pytorch_lightning.strategies.deepspeed import DeepSpeedStrategy
-from jsonargparse import ActionConfigFile
 from dotenv import load_dotenv
 import yaml
+from inspect import signature
 
+
+def prepare_environment_for_lean_dojo(config_file_path):
+    with open(config_file_path) as f:
+        config = yaml.safe_load(f)
+    # github_auth_token
+    load_dotenv(config["github_access_token"])
+    # lean_dojo_cache_path
+    os.environ["CACHE_DIR"] = config["lean_dojo_cache_path"]
+
+
+prepare_environment_for_lean_dojo("config.yaml")
+from lean_dojo import Pos
 
 Example = Dict[str, Any]
 Batch = Dict[str, Any]
 
 MARK_START_SYMBOL = "<a>"
 MARK_END_SYMBOL = "</a>"
+
+
+CONFIG_LINK_ARGUMENTS = {
+    "generator": {
+        "model.model_name": "data.model_name",
+        "data.max_inp_seq_len": "model.max_inp_seq_len",
+        "data.max_oup_seq_len": "model.max_oup_seq_len",
+    },
+    "retriever": {
+        "model.model_name": "data.model_name",
+        "data.max_seq_len": "model.max_seq_len",
+    }
+}
 
 
 def remove_marks(s: str) -> str:
@@ -508,43 +532,47 @@ def cpu_checkpointing_enabled(pl_module) -> bool:
         return False
 
 
-def load_model_from_name_and_config_file(model_name, config_file, link_arguments):
-    # set up parser
-    parser = pl.LightningArgumentParser()
-    parser.add_argument("--config", action=ActionConfigFile)
-
-    # parse args from file
-    config = parser.parse_args(["--config", config_file])
-    assert hasattr(config, "model")
-    config.model.model_name = model_name
-    for src, dest in link_arguments.items():
-        _link_config_arguments(config, src, dest)
-
-    # instantiate model class
-    return parser.instantiate_classes(config.model)['model']
-
-
-def _link_config_arguments(config, src, dest):
+def link_config_dict_arguments(config, src, dest):
     # get value to replace it with
     src_value = config
     for src_part in src.split("."):
-        src_value = getattr(src_value, src_part)
+        src_value = src_value.get(src_part)
 
     # get the parent of the src argument
     dest_parent = config
     dest_parts = dest.split(".")
     for dest_part in dest_parts[:-1]:
-        dest_parent = getattr(dest_parent, dest_part)
+        dest_parent = dest_parent.get(dest_part)
 
     # set the value
-    setattr(dest_parent, dest_parts[-1], src_value)
+    dest_parent[dest_parts[-1]] = src_value
     return config
 
 
-def prepare_environment_for_lean_dojo(config_file_path):
-    with open(config_file_path) as f:
+def instantiate_model_from_yaml_config(
+    cls: Any, 
+    config_file: str, 
+    link_args: dict[str, str],
+    **overrides
+) -> Any:
+    # read config file
+    with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
-    # github_auth_token
-    load_dotenv(config["github_access_token"])
-    # lean_dojo_cache_path
-    os.environ["CACHE_DIR"] = config["lean_dojo_cache_path"]
+    
+    # add links
+    for src, dest in link_args.items():
+        config = link_config_dict_arguments(config, src, dest)
+    
+    # testing
+    print(config["model"])
+
+    # get constructor parameters
+    constructor_signature = signature(cls.__init__)
+    parameter_names = list(constructor_signature.parameters.keys())
+    parameters = [
+        overrides.get(name, config["model"][name])
+        for name in parameter_names[1:] # skip self param
+    ]
+
+    # construct model object
+    return cls(*parameters)

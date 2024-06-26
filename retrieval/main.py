@@ -7,17 +7,12 @@ from pytorch_lightning.cli import LightningCLI
 
 from retrieval.model import PremiseRetriever
 from retrieval.datamodule import RetrievalDataModule
-
-
-retriever_link_arguments = {
-    "model.model_name": "data.model_name",
-    "data.max_seq_len": "model.max_seq_len",
-}
+from common import CONFIG_LINK_ARGUMENTS
 
 
 class CLI(LightningCLI):
     def add_arguments_to_parser(self, parser) -> None:
-        for k, v in retriever_link_arguments.items():
+        for k, v in CONFIG_LINK_ARGUMENTS["retreiver"].items():
             parser.link_arguments(k, v)
 
 

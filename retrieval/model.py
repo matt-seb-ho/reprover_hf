@@ -21,9 +21,9 @@ from common import (
     load_checkpoint,
     zip_strict,
     cpu_checkpointing_enabled,
-    load_model_from_name_and_config_file,
+    instantiate_model_from_yaml_config,
+    CONFIG_LINK_ARGUMENTS,
 )
-from main import retriever_link_arguments
 
 
 torch.set_float32_matmul_precision("medium")
@@ -37,7 +37,6 @@ class PremiseRetriever(pl.LightningModule):
         warmup_steps: int,
         max_seq_len: int,
         num_retrieved: int = 100,
-        use_device_map_auto: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -46,17 +45,13 @@ class PremiseRetriever(pl.LightningModule):
         self.num_retrieved = num_retrieved
         self.max_seq_len = max_seq_len
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if use_device_map_auto:
-            logger.info("Using device map auto for retriever...")
-            self.encoder = T5EncoderModel.from_pretrained(model_name, device_map="auto")
-        else:
-            self.encoder = T5EncoderModel.from_pretrained(model_name)
+        self.encoder = T5EncoderModel.from_pretrained(model_name)
         self.embeddings_staled = True
 
     @classmethod
     def load(cls, ckpt_path: str, device, freeze: bool) -> "PremiseRetriever":
         return load_checkpoint(cls, ckpt_path, device, freeze)
-
+    
     @classmethod
     def load_from_hf(
         cls, 
@@ -72,11 +67,13 @@ class PremiseRetriever(pl.LightningModule):
 
         """
         logger.info(f"Loading PremiseRetriever from HF model id: {hf_model_id}")
-        model = load_model_from_name_and_config_file(
-            hf_model_id, 
-            "retrieval/confs/cli_lean4_random.yaml",
-            retriever_link_arguments,
+        model = instantiate_model_from_yaml_config(
+            cls, 
+            "retrieval/confs/cli_lean4_random.yaml", 
+            CONFIG_LINK_ARGUMENTS["retriever"],
+            model_name=hf_model_id,
         )
+        
         if device:
             model.to(device)
         if freeze:

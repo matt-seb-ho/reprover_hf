@@ -11,7 +11,7 @@ from loguru import logger
 from typing import List, Tuple, Optional
 
 from common import prepare_environment_for_lean_dojo, set_logger
-prepare_environment_for_lean_dojo()
+prepare_environment_for_lean_dojo("config.yaml")
 
 from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
 
@@ -77,13 +77,13 @@ def sample_trees(
     num_sampled_tactics: int = 64,
     timeout: int = 600,
     num_cpus: int = 1,
-    with_gpus: bool = False,
+    num_gpus: int = 0,
     verbose: bool = False,
     hf_generator_id: Optional[str] = None,
     hf_retrieval_id: Optional[str] = None,
     output_tree_file: Optional[str] = None,
     output_dir: Optional[str] = None,
-    dojo_tmp_dir: Optional[str] = "/mnt/hdd/msho/gfn_ntp/tmp",
+    dojo_tmp_dir: Optional[str] = None,
     testing: Optional[int] = None,
 ) -> Tuple[float, list[dict]]:
     set_logger(verbose)
@@ -110,7 +110,7 @@ def sample_trees(
         tactic,
         module,
         num_cpus,
-        with_gpus=with_gpus,
+        num_gpus,
         timeout=timeout,
         num_sampled_tactics=num_sampled_tactics,
         debug=verbose,
@@ -118,6 +118,10 @@ def sample_trees(
         hf_retriever_id=hf_retrieval_id,
     )
     
+    # TESTING LOL
+    logger.info("TESTING LOL NICE!")
+    assert False
+
     logger.info("Prover constructed; starting proof search...")
 
     # results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
@@ -226,7 +230,7 @@ def main() -> None:
         "--num-cpus", type=int, default=1, help="The number of concurrent provers."
     )
     parser.add_argument(
-        "--with-gpus", action="store_true", help="Use GPUs for proof search."
+        "--num-gpus", type=int, default=1, help="Use GPUs for proof search."
     )
     parser.add_argument(
         "--verbose", action="store_true", help="Set the logging level to DEBUG."
@@ -248,7 +252,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--dojo_tmp_dir",
-        default="/mnt/hdd/msho/gfn_ntp/tmp",
+        required=True,
         help="where to find target repo",
     )
     parser.add_argument(
@@ -284,7 +288,7 @@ def main() -> None:
         args.num_sampled_tactics,
         args.timeout,
         args.num_cpus,
-        args.with_gpus,
+        args.num_gpus,
         args.verbose,
         hf_generator_id=args.hf_gen_id,
         hf_retrieval_id=args.hf_ret_id,
