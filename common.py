@@ -20,16 +20,17 @@ from dotenv import load_dotenv
 import yaml
 from inspect import signature
 
-
+# need to ensure environment variables are set before importing lean dojo
+# - lean dojo's __init__ makes requests to Github, so it needs an access token
 def prepare_environment_for_lean_dojo(config_file_path):
     with open(config_file_path) as f:
         config = yaml.safe_load(f)
     # github_auth_token
-    load_dotenv(config["github_access_token"])
+    if "GITHUB_ACCESS_TOKEN" not in os.environ:
+        load_dotenv(config["github_access_token"])
     # lean_dojo_cache_path
-    os.environ["CACHE_DIR"] = config["lean_dojo_cache_path"]
-
-
+    if "CACHE_DIR" not in os.environ:
+        os.environ["CACHE_DIR"] = config["lean_dojo_cache_path"]
 prepare_environment_for_lean_dojo("config.yaml")
 from lean_dojo import Pos
 
@@ -38,7 +39,6 @@ Batch = Dict[str, Any]
 
 MARK_START_SYMBOL = "<a>"
 MARK_END_SYMBOL = "</a>"
-
 
 CONFIG_LINK_ARGUMENTS = {
     "generator": {
@@ -540,12 +540,13 @@ def link_config_dict_arguments(config, src, dest):
 
     # get the parent of the src argument
     dest_parent = config
-    dest_parts = dest.split(".")
-    for dest_part in dest_parts[:-1]:
+    dest_path = dest.split(".")
+    dest_key = dest_path.pop()
+    for dest_part in dest_path:
         dest_parent = dest_parent.get(dest_part)
 
     # set the value
-    dest_parent[dest_parts[-1]] = src_value
+    dest_parent[dest_key] = src_value
     return config
 
 

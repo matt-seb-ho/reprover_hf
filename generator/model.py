@@ -134,49 +134,32 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
     ) -> "RetrievalAugmentedGenerator":
         return load_checkpoint(cls, ckpt_path, device, freeze)
 
-
     @classmethod
     def load_from_hf(
         cls, 
         hf_generator_id: str, 
         hf_retriever_id: Optional[str] = None,
-        device=None,
+        device: Optional[torch.device] = None,
+        freeze: bool = True,
     ) -> "RetrievalAugmentedGenerator":
         """
-        We aren't actually going to use the training args (we really just want to run inference)
-        so it doesn't matter what we put, so we can just use the hyperparameters they use for their lean4 runs.
-        These are from `generator/confs/cli_lean4_random.yaml`
-
-        lr: float = 5e-4,
-        warmup_steps: int = 2000,
-        num_beams: int = 1,
-        eval_num_retrieved: int = 100,
-        eval_num_cpus: int = 12,
-        eval_num_theorems: int = 0,
-        max_inp_seq_len: int = 2300,
-        max_oup_seq_len: int = 512,
-        length_penalty: float = 0.0,
-        ret_ckpt_path: Optional[str] = None,
-
-        TODO: change if we end up tuning this model
+        initializes class instance with pretrained model from huggingface
+        - training args are set from training config files (random split)
+        optionally initializes retriever module after the generator
         """
-        logger.info(f"Loading RetrievalAugmentedGenerator from HF model_id: {hf_generator_id}")
+        logger.info(f"loading RetrievalAugmentedGenerator from HF id: {hf_generator_id}")
         model = instantiate_model_from_yaml_config(
             cls, 
             "generator/confs/cli_lean4_random.yaml", 
             CONFIG_LINK_ARGUMENTS["generator"],
             model_name=hf_generator_id,
         )
-
-        logger.info("Initialized generator class")
         if device:
-            logger.info(f"Moving model to device {device}")
             model.to(device)
-            logger.info("Model moved!")
+        if freeze:
+            model.freeze()
         if hf_retriever_id is not None:
-            # need to add the retriever
-            # - device=None to use device_map="auto" there too
-            logger.info("finished loading generator, now loading retriever")
+            logger.info(f"loading PremiseRetriever from HF id: {hf_retriever_id}")
             model.retriever = PremiseRetriever.load_from_hf(hf_retriever_id, device=device)
         return model
 

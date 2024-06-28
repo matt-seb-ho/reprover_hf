@@ -60,11 +60,8 @@ class PremiseRetriever(pl.LightningModule):
         freeze: bool = True
     ) -> "PremiseRetriever":
         """
-        initializing the model from 
-        We aren't actually going to use the training args (we really just want to run inference)
-        so it doesn't matter what we put, so we can just use the hyperparameters they use for their lean4 runs.
-        These are from `retrieval/confs/cli_lean4_random.yaml`
-
+        initializes class instance with pretrained model from huggingface
+        - training args are set from training config files (random split)
         """
         logger.info(f"Loading PremiseRetriever from HF model id: {hf_model_id}")
         model = instantiate_model_from_yaml_config(
@@ -73,7 +70,6 @@ class PremiseRetriever(pl.LightningModule):
             CONFIG_LINK_ARGUMENTS["retriever"],
             model_name=hf_model_id,
         )
-        
         if device:
             model.to(device)
         if freeze:

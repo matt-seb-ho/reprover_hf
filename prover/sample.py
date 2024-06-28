@@ -5,19 +5,15 @@ import os
 import uuid
 import json
 import pickle
-import hashlib
 import argparse
 from loguru import logger
-from typing import List, Tuple, Optional
+from typing import Optional
 
 from common import prepare_environment_for_lean_dojo, set_logger
 prepare_environment_for_lean_dojo("config.yaml")
 
-from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
-
-from prover.proof_search import Status, DistributedProver, SearchResult
-from prover.evaluate import _get_theorems
-from prover.search_tree import Edge, InternalNode
+from lean_dojo import LeanGitRepo, Theorem, Pos
+from prover.proof_search import Status, DistributedProver
 
 
 def handle_output_dir_path(path):
@@ -65,11 +61,6 @@ def read_data_file(data_path: str) -> tuple[LeanGitRepo, list[Theorem], list[Pos
 def sample_trees(
     data_path: str,
     exp_id: Optional[str] = None,
-    # split: str = "val",
-    # file_path: Optional[str] = None,
-    # full_name: Optional[str] = None,
-    # name_filter: Optional[str] = None,
-    # num_theorems: Optional[int] = None,
     ckpt_path: Optional[str] = None,
     indexed_corpus_path: Optional[str] = None,
     tactic: Optional[str] = None,
@@ -85,7 +76,7 @@ def sample_trees(
     output_dir: Optional[str] = None,
     dojo_tmp_dir: Optional[str] = None,
     testing: Optional[int] = None,
-) -> Tuple[float, list[dict]]:
+) -> tuple[float, list[dict]]:
     set_logger(verbose)
 
     # create the output dir if it doesn't exist
@@ -117,28 +108,15 @@ def sample_trees(
         hf_generator_id=hf_generator_id,
         hf_retriever_id=hf_retrieval_id,
     )
-    
-    # TESTING LOL
-    logger.info("TESTING LOL NICE!")
-    assert False
 
     logger.info("Prover constructed; starting proof search...")
 
-    # results, trees = prover.search_unordered_and_return_trees(repo, theorems, positions)
     results = prover.search_unordered_and_save_trees(
         repo,
         theorems, 
         positions,
-        dojo_tmp_dir,
         output_dir,
     )
-
-    # if output_tree_file:
-    #     tree_data = {res.theorem.full_name: tree for res, tree in zip(results, trees) if res is not None}
-    #     with open(output_tree_file, 'w') as f:
-    #         json.dump(tree_data, f)
-    #         logger.info(f"Sampled trees written out to: {output_tree_file}")
-
 
     # Calculate the result statistics.
     num_proved = num_failed = num_discarded = 0
@@ -172,7 +150,10 @@ def sample_trees(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Script for evaluating the prover on theorems extracted by LeanDojo."
+        description=(
+            "Runs proof search to sample possible proof trajectories "
+            "and saves search trees to pickle files."
+        )
     )
     parser.add_argument(
         "--data-path",
@@ -181,16 +162,6 @@ def main() -> None:
         help="Path to the data extracted by LeanDojo (e.g., data/leandojo_benchmark/random).",
     )
     parser.add_argument("--exp-id", type=str, help="Experiment ID used for logging.")
-    parser.add_argument(
-        "--split",
-        type=str,
-        choices=["train", "val", "test"],
-        default="val",
-    )
-    # `file_path`, `full_name`, `name_filter`, and `num_theorems` can be used to filter theorems.
-    parser.add_argument("--file-path", type=str)
-    parser.add_argument("--full-name", type=str)
-    parser.add_argument("--name-filter", type=str)
     parser.add_argument("--num-theorems", type=int)
     parser.add_argument(
         "--ckpt_path",
@@ -230,15 +201,10 @@ def main() -> None:
         "--num-cpus", type=int, default=1, help="The number of concurrent provers."
     )
     parser.add_argument(
-        "--num-gpus", type=int, default=1, help="Use GPUs for proof search."
+        "--num-gpus", type=int, default=1, help="The number of GPUs for proof search."
     )
     parser.add_argument(
         "--verbose", action="store_true", help="Set the logging level to DEBUG."
-    )
-    parser.add_argument(
-        "--output_tree_file",
-        type=str,
-        help="json file to write sampled trees out to",
     )
     parser.add_argument(
         "--output_dir",
@@ -251,14 +217,9 @@ def main() -> None:
         help="lean dojo downloads to a cache dir (defaults to Path.home())",
     )
     parser.add_argument(
-        "--dojo_tmp_dir",
-        required=True,
-        help="where to find target repo",
-    )
-    parser.add_argument(
         "--testing",
         type=int,
-        help="how many theorems to grab for testing purposes",
+        help="how theorems to process for testing purposes",
     )
     args = parser.parse_args()
 
@@ -267,20 +228,9 @@ def main() -> None:
     logger.info(f"PID: {os.getpid()}")
     logger.info(args)
 
-    # # supplying github token increases my rate limits
-    # if args.lean_dojo_cache_path:
-    #     os.environ["CACHE_DIR"] = args.lean_dojo_cache_path
-    #     # assert False
-
-    # pass_1, trees = sample_trees(
     pass_1 = sample_trees(
         args.data_path,
         args.exp_id,
-        # args.split,
-        # args.file_path,
-        # args.full_name,
-        # args.name_filter,
-        # args.num_theorems,
         args.ckpt_path,
         args.indexed_corpus_path,
         args.tactic,
@@ -297,9 +247,7 @@ def main() -> None:
         dojo_tmp_dir=args.dojo_tmp_dir,
         testing=args.testing,
     )
-
     logger.info(f"Pass@1: {pass_1}")
-    # logger.info(f"Num trees: {len(trees)}")
 
 
 if __name__ == "__main__":
