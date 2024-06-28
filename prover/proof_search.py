@@ -22,6 +22,7 @@ from lean_dojo import (
     DojoInitError,
     DojoCrashError,
     DojoHardTimeoutError,
+    InitOptimizedDojo,
 )
 from loguru import logger
 from dataclasses import dataclass
@@ -58,11 +59,13 @@ class BestFirstSearchProver:
         timeout: int,
         num_sampled_tactics: int,
         debug: bool,
+        use_init_optim: bool = True,
     ) -> None:
         self.tac_gen = tac_gen
         self.timeout = timeout
         self.num_sampled_tactics = num_sampled_tactics
         self.debug = debug
+        self.use_init_optim = use_init_optim
 
         self.num_expansions = 0
         self.actor_time = 0.0
@@ -85,13 +88,20 @@ class BestFirstSearchProver:
         self.environment_time = 0.0
         self.num_expansions = 0
 
+        dojo_cls = Dojo
+        if getattr(self, "distributed", False):
+            logger.info("InitOptimizedDojo currently does not support concurrent processes. Defaulting to standard dojo.")
+        elif self.use_init_optim:
+            dojo_cls = InitOptimizedDojo
+            assert InitOptimizedDojo.default_tmp_dir is not None, "Please set InitOptimizedDojo.default_tmp_dir"
+        
         if isinstance(self.tac_gen, FixedTacticGenerator):
             imps = [self.tac_gen.module]
         else:
             imps = []
 
         try:
-            with Dojo(
+            with dojo_cls(
                 thm, 
                 hard_timeout=60 + self.timeout, 
                 additional_imports=imps
@@ -361,6 +371,7 @@ class GpuProver(BestFirstSearchProver):
         debug: bool,
         hf_generator_id: Optional[str] = None,
         hf_retriever_id: Optional[str] = None,
+        use_init_optim: bool = True,
     ) -> None:
         # load tactic generator model
         if ckpt_path:
@@ -389,6 +400,7 @@ class GpuProver(BestFirstSearchProver):
             timeout,
             num_sampled_tactics,
             debug,
+            use_init_optim=use_init_optim,
         )
 
 
@@ -412,6 +424,7 @@ class DistributedProver:
         debug: Optional[bool] = False,
         hf_generator_id: Optional[str] = None,
         hf_retriever_id: Optional[str] = None,
+        use_init_optim: bool = True,
     ) -> None:
         if ckpt_path is None and hf_generator_id is None:
             assert tactic and not indexed_corpus_path
@@ -458,6 +471,7 @@ class DistributedProver:
                     debug=debug,
                     hf_generator_id=hf_generator_id,
                     hf_retriever_id=hf_retriever_id,
+                    use_init_optim=use_init_optim,
                 )
                 for _ in range(num_workers)
             ]

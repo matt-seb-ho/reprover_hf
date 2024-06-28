@@ -8,11 +8,12 @@ import pickle
 import argparse
 from loguru import logger
 from typing import Optional
+from pathlib import Path
 
 from common import prepare_environment_for_lean_dojo, set_logger
 prepare_environment_for_lean_dojo("config.yaml")
 
-from lean_dojo import LeanGitRepo, Theorem, Pos
+from lean_dojo import LeanGitRepo, Theorem, Pos, InitOptimizedDojo
 from prover.proof_search import Status, DistributedProver
 
 
@@ -73,7 +74,8 @@ def sample_trees(
     hf_generator_id: Optional[str] = None,
     hf_retrieval_id: Optional[str] = None,
     output_dir: Optional[str] = None,
-    testing: Optional[int] = None,
+    num_theorems: Optional[int] = None,
+    use_init_optim: bool = True,
 ) -> tuple[float, list[dict]]:
     set_logger(verbose)
 
@@ -87,9 +89,9 @@ def sample_trees(
     # )
     # updated to read format from filtering
     repo, theorems, positions = read_data_file(data_path)
-    if testing is not None:
-        theorems = theorems[:testing]
-        positions = positions[:testing]
+    if num_theorems is not None:
+        theorems = theorems[:num_theorems]
+        positions = positions[:num_theorems]
     logger.info("Finished reading in theorem data; constructing prover...")
     
     # Search for proofs using multiple concurrent provers.
@@ -105,6 +107,7 @@ def sample_trees(
         debug=verbose,
         hf_generator_id=hf_generator_id,
         hf_retriever_id=hf_retrieval_id,
+        use_init_optim=use_init_optim,
     )
 
     logger.info("Prover constructed; starting proof search...")
@@ -210,9 +213,22 @@ def main() -> None:
         help="path to directory where trees will be serialized to"
     )
     parser.add_argument(
-        "--testing",
+        "--num_theorems",
         type=int,
-        help="how theorems to process for testing purposes",
+        help="how theorems to run proof search for",
+    )
+    # default_tmp_dir defaults to repo_root/tmp
+    default_tmp_dir = Path(__file__).parents[1] / "tmp" 
+    parser.add_argument(
+        "--lean_dojo_tmp_dir",
+        type=str,
+        default=str(default_tmp_dir),
+        help="path to tmp dir keeping singular repo copy",
+    )
+    parser.add_argument(
+        "--init_optim",
+        action="store_true",
+        help="whether to use InitOptimizedDojo",
     )
     args = parser.parse_args()
 
@@ -220,6 +236,9 @@ def main() -> None:
 
     logger.info(f"PID: {os.getpid()}")
     logger.info(args)
+
+    # set tmp_dir
+    InitOptimizedDojo.default_tmp_dir = Path(args.lean_dojo_tmp_dir)
 
     pass_1 = sample_trees(
         args.data_path,
@@ -236,7 +255,8 @@ def main() -> None:
         hf_generator_id=args.hf_gen_id,
         hf_retrieval_id=args.hf_ret_id,
         output_dir=args.output_dir,
-        testing=args.testing,
+        num_theorems=args.num_theorems,
+        use_init_optim=args.init_optim,
     )
     logger.info(f"Pass@1: {pass_1}")
 
