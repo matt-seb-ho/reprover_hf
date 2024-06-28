@@ -72,9 +72,7 @@ def sample_trees(
     verbose: bool = False,
     hf_generator_id: Optional[str] = None,
     hf_retrieval_id: Optional[str] = None,
-    output_tree_file: Optional[str] = None,
     output_dir: Optional[str] = None,
-    dojo_tmp_dir: Optional[str] = None,
     testing: Optional[int] = None,
 ) -> tuple[float, list[dict]]:
     set_logger(verbose)
@@ -212,11 +210,6 @@ def main() -> None:
         help="path to directory where trees will be serialized to"
     )
     parser.add_argument(
-        "--lean_dojo_cache_path",
-        type=str,
-        help="lean dojo downloads to a cache dir (defaults to Path.home())",
-    )
-    parser.add_argument(
         "--testing",
         type=int,
         help="how theorems to process for testing purposes",
@@ -242,9 +235,7 @@ def main() -> None:
         args.verbose,
         hf_generator_id=args.hf_gen_id,
         hf_retrieval_id=args.hf_ret_id,
-        output_tree_file=args.output_tree_file,
         output_dir=args.output_dir,
-        dojo_tmp_dir=args.dojo_tmp_dir,
         testing=args.testing,
     )
     logger.info(f"Pass@1: {pass_1}")
