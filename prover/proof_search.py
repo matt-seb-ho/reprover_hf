@@ -28,8 +28,9 @@ from loguru import logger
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from ray.util.actor_pool import ActorPool
+import traceback
 
-from common import zip_strict
+from common import zip_strict, TRACEBACK_LOG_LEVEL
 from prover.search_tree import *
 from generator.model import RetrievalAugmentedGenerator, FixedTacticGenerator
 
@@ -119,7 +120,14 @@ class BestFirstSearchProver:
                         self._best_first_search()
                     except DojoCrashError as ex:
                         logger.warning(f"Dojo crashed with {ex} when proving {thm}")
-                        pass
+                    except Exception as ex:
+                        # log error, but continue to save proof tree
+                        logger.error(
+                            f"exception while proving {thm}\n"
+                            f"- type: {type(ex)}\n"
+                            f"- str(e): {str(ex)}"
+                        )
+                        logger.log(TRACEBACK_LOG_LEVEL, traceback.format_exc())
 
             if self.root.status == Status.PROVED:
                 proof = [e.tactic for e in self.root.extract_proof()]
@@ -527,13 +535,18 @@ class DistributedProver:
             logger.info("Running search_unordered_and_save_trees in non-distributed mode")
             results = []
             for thm, pos in zip_strict(theorems, positions):
-                res = self.prover.search(
-                    repo, 
-                    thm, 
-                    pos, 
-                    save_to_dir=save_to_dir
-                )
-                results.append(res)
+                try:
+                    res = self.prover.search(
+                        repo, 
+                        thm, 
+                        pos, 
+                        save_to_dir=save_to_dir
+                    )
+                    results.append(res)
+                except Exception as e:
+                    logger.error(f"exception occurred in search_unordered_...: {type(e)}, {e}")
+                    logger.log(TRACEBACK_LOG_LEVEL, traceback.format_exc())
+
             return results
 
         def actor_pool_search(p, x):

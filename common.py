@@ -53,6 +53,11 @@ CONFIG_LINK_ARGUMENTS = {
 }
 
 
+# custom level between debug and info
+TRACEBACK_LOG_LEVEL = "TRACEBACK"
+logger.level(TRACEBACK_LOG_LEVEL, no=15)
+
+
 def remove_marks(s: str) -> str:
     """Remove all :code:`<a>` and :code:`</a>` from ``s``."""
     return s.replace(MARK_START_SYMBOL, "").replace(MARK_END_SYMBOL, "")
@@ -507,17 +512,18 @@ def zip_strict(*args):
     return zip(*args)
 
 
-def set_logger(verbose: bool) -> None:
+def set_logger(verbose: bool, log_file: Optional[str] = None) -> None:
     """
     Set the logging level of loguru.
     The effect of this function is global, and it should
     be called only once in the main function
     """
     logger.remove()
-    if verbose:
-        logger.add(sys.stderr, level="DEBUG")
-    else:
-        logger.add(sys.stderr, level="INFO")
+    level = "DEBUG" if verbose else "INFO"
+    logger.add(sys.stderr, level=level)
+    if log_file:
+        file_log_level = "DEBUG" if verbose else TRACEBACK_LOG_LEVEL
+        logger.add(log_file, level=file_log_level)
 
 
 def cpu_checkpointing_enabled(pl_module) -> bool:

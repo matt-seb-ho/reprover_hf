@@ -76,8 +76,10 @@ def sample_trees(
     output_dir: Optional[str] = None,
     num_theorems: Optional[int] = None,
     use_init_optim: bool = True,
+    theorem_name: Optional[str] = None,
+    log_file: Optional[str] = None,
 ) -> tuple[float, list[dict]]:
-    set_logger(verbose)
+    set_logger(verbose, log_file)
 
     # create the output dir if it doesn't exist
     if output_dir:
@@ -89,7 +91,15 @@ def sample_trees(
     # )
     # updated to read format from filtering
     repo, theorems, positions = read_data_file(data_path)
-    if num_theorems is not None:
+    if theorem_name:
+        for thm, pos in zip(theorems, positions):
+            if thm.full_name == theorem_name:
+                break
+        assert thm.full_name == theorem_name, f"args.theorem_name {theorem_name} not found"
+        logger.info(f"arg.theorem_name {theorem_name} found.")
+        theorems = [thm]
+        positions = [pos]
+    elif num_theorems is not None:
         theorems = theorems[:num_theorems]
         positions = positions[:num_theorems]
     logger.info("Finished reading in theorem data; constructing prover...")
@@ -230,10 +240,22 @@ def main() -> None:
         action="store_true",
         help="whether to use InitOptimizedDojo",
     )
+    parser.add_argument(
+        "--theorem_name",
+        type=str,
+        help="theorem name to test against specific theorems"
+    )
+    parser.add_argument(
+        "--log_file",
+        type=str,
+        help="log file to write to"
+    )
     args = parser.parse_args()
 
     assert args.ckpt_path or args.tactic or args.hf_gen_id
 
+    if args.log_file:
+        logger.add(args.log_file)
     logger.info(f"PID: {os.getpid()}")
     logger.info(args)
 
@@ -257,6 +279,8 @@ def main() -> None:
         output_dir=args.output_dir,
         num_theorems=args.num_theorems,
         use_init_optim=args.init_optim,
+        theorem_name=args.theorem_name,
+        log_file=args.log_file,
     )
     logger.info(f"Pass@1: {pass_1}")
 
